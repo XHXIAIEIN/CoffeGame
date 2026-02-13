@@ -1,4 +1,11 @@
 import { Vector3 } from 'three';
+import { ThreeElements } from '@react-three/fiber';
+
+declare global {
+  namespace JSX {
+    interface IntrinsicElements extends ThreeElements {}
+  }
+}
 
 export enum GamePhase {
   IDLE = 'IDLE',       // Waiting to start
@@ -15,6 +22,40 @@ export enum SlapGrade {
   NONE = 'NONE'
 }
 
+export enum HitZone {
+  CENTER = 'CENTER',
+  EDGE = 'EDGE',
+  CORNER = 'CORNER'
+}
+
+export enum FalloffType {
+  EXP = 'EXP',
+  INV_SQUARE = 'INV_SQUARE'
+}
+
+export interface ImpactProfile {
+  radius: number;
+  verticalImpulse: number;
+  horizontalImpulse: number;
+  randomness: number;
+  falloffType: FalloffType;
+  falloffK: number;
+  secondPulseDelayMs?: number;
+  secondPulseScale?: number;
+
+  shakeIntensity: number;
+  shakeDuration: number;
+
+  ringScale: number;
+  ringAlpha: number;
+  ringDuration: number;
+  ringColor: string;
+
+  particleCount: number;
+  soundVariant: SlapGrade;
+  vibratePattern: number[];
+}
+
 export interface GameState {
   phase: GamePhase;
   score: number;
@@ -28,6 +69,13 @@ export interface SlapData {
   grade: SlapGrade;
 }
 
+export interface QTEResult {
+  power: number;
+  dtMs: number;
+  normalizedX: number;
+  normalizedY: number;
+}
+
 export interface BeanData {
   position: [number, number, number];
   velocity: [number, number, number];
@@ -36,4 +84,13 @@ export interface BeanData {
   mass: number;
   scale: number;
   value: number;
+}
+
+export interface SlapTelemetry {
+  dtMs: number;
+  power: number;
+  grade: SlapGrade;
+  zone: HitZone;
+  moved: number;
+  score: number;
 }

@@ -1,8 +1,10 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import GameScene, { GameSceneHandle } from './components/GameScene';
 import QTEOverlay from './components/QTEOverlay';
-import { GamePhase, SlapGrade } from './types';
+import { GamePhase, HitZone, SlapGrade } from './types';
 import { audioManager } from './services/audioManager';
+import { analytics } from './services/analytics';
 import { GAME_CONFIG } from './config';
 
 const App: React.FC = () => {
@@ -12,18 +14,29 @@ const App: React.FC = () => {
   const [score, setScore] = useState(0);
   const [beanCount, setBeanCount] = useState(0);
   const [grade, setGrade] = useState<SlapGrade>(SlapGrade.NONE);
+  const [accuracy, setAccuracy] = useState(0);
   
   const sceneRef = useRef<GameSceneHandle>(null);
 
-  // --- Game Loop Logic ---
+  useEffect(() => {
+    const start = performance.now();
+    analytics.open();
+    const raf = requestAnimationFrame(() => {
+      analytics.loadTime(Math.round(performance.now() - start));
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   const handleStart = () => {
     audioManager.setEnabled(true);
+    analytics.start();
     setPhase(GamePhase.COUNTDOWN);
     setCountdown(3);
     setScore(0);
     setBeanCount(0);
     setGrade(SlapGrade.NONE);
+    setAccuracy(0);
     sceneRef.current?.resetBeans();
     
     // Countdown Timer
@@ -44,61 +57,69 @@ const App: React.FC = () => {
     }, 1000);
   };
 
-  const handleSlap = useCallback((power: number) => {
+  const handleInteract = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     if (phase !== GamePhase.QTE) return;
-
-    // Determine Grade
-    let currentGrade = SlapGrade.MISS;
-    if (power >= 0.95) currentGrade = SlapGrade.PERFECT;
-    else if (power >= 0.6) currentGrade = SlapGrade.GOOD;
     
-    setGrade(currentGrade);
-    setPhase(GamePhase.ACTION);
+    // e.stopPropagation(); // Optional, depending on event bubbling
     
-    // Play SFX
-    audioManager.playSlap(power);
-    sceneRef.current?.shakeCamera();
+    const isTouch = 'touches' in e || 'changedTouches' in e;
+    // @ts-ignore
+    const touchList = e.touches || e.changedTouches;
+    const clientX = isTouch ? touchList[0]?.clientX ?? window.innerWidth / 2 : (e as React.MouseEvent).clientX;
+    const clientY = isTouch ? touchList[0]?.clientY ?? window.innerHeight / 2 : (e as React.MouseEvent).clientY;
 
-    // Trigger Physics in Scene
-    // For simplicity, we assume center screen slap if triggered via UI button
-    // But since the QTE overlay covers the screen, we can pass a center point (0,0) normalized
-    // Or we could pass the actual touch event coordinates if we passed the event through.
-    // Let's assume hitting the "sweet spot" of the table (center) for the QTE mechanic focus.
-    const { moved } = sceneRef.current?.triggerSlap(0, 0, power) || { moved: 0 };
+    const normalizedX = (clientX / window.innerWidth) * 2 - 1;
+    const normalizedY = -(clientY / window.innerHeight) * 2 + 1;
+
+    // Resolve Slap
+    const result = sceneRef.current?.resolveSlap(normalizedX, normalizedY);
     
-    setBeanCount(moved);
+    if (result) {
+      const { grade: currentGrade, zone, moved } = result;
+      const profile = GAME_CONFIG.IMPACT_PROFILES[currentGrade];
 
-    // Wait for physics to settle then show result
-    setTimeout(() => {
-      // Calculate final score
-      const finalScore = sceneRef.current?.getScore() || 0;
+      setGrade(currentGrade);
+      setPhase(GamePhase.ACTION);
+      setBeanCount(moved);
       
-      // Apply multipliers
-      let multiplier = 1;
-      if (currentGrade === SlapGrade.PERFECT) multiplier = GAME_CONFIG.SCORE_MULTIPLIERS.PERFECT;
-      else if (currentGrade === SlapGrade.GOOD) multiplier = GAME_CONFIG.SCORE_MULTIPLIERS.GOOD;
-      else multiplier = GAME_CONFIG.SCORE_MULTIPLIERS.MISS;
+      audioManager.playSlap(profile.soundVariant);
+
+      if (navigator.vibrate && profile.vibratePattern.length > 0) {
+        navigator.vibrate(profile.vibratePattern);
+      }
       
-      setScore(Math.floor(finalScore * multiplier));
-      setPhase(GamePhase.RESULT);
-      if (currentGrade !== SlapGrade.MISS) audioManager.playWin();
-    }, 2000); // 2 seconds of watching beans fly
+      analytics.slap({
+        dtMs: 0, 
+        power: 0, // Simplified for pendulum
+        grade: currentGrade,
+        zone
+      });
+
+      setTimeout(() => {
+        const finalScore = sceneRef.current?.getScore() || 0;
+        
+        let multiplier = 1;
+        if (currentGrade === SlapGrade.PERFECT) multiplier = GAME_CONFIG.SCORE_MULTIPLIERS.PERFECT;
+        else if (currentGrade === SlapGrade.GOOD) multiplier = GAME_CONFIG.SCORE_MULTIPLIERS.GOOD;
+        else multiplier = GAME_CONFIG.SCORE_MULTIPLIERS.MISS;
+        
+        const QTscore = Math.floor(finalScore * multiplier);
+        setScore(QTscore);
+        setPhase(GamePhase.RESULT);
+        if (currentGrade !== SlapGrade.MISS) audioManager.playWin();
+        analytics.result({ score: QTscore, moved, grade: currentGrade });
+      }, 1800);
+    }
   }, [phase]);
 
-  const handleReset = () => {
-    setPhase(GamePhase.IDLE);
-    sceneRef.current?.resetBeans();
-  };
-
-  // --- UI Renderers ---
-
   return (
-    <div className="w-full h-screen relative overflow-hidden bg-stone-300">
+    <div className="fixed inset-0 overflow-hidden bg-stone-300">
       {/* 3D Layer */}
       <div className="absolute inset-0 z-0">
         <GameScene 
           ref={sceneRef} 
           isSimulating={true} 
+          gamePhase={phase}
           onSceneReady={() => {}} 
         />
       </div>
@@ -112,8 +133,13 @@ const App: React.FC = () => {
              <h1 className="text-3xl font-black text-amber-900 tracking-tighter drop-shadow-md">COFFEE SLAP</h1>
              {phase === GamePhase.IDLE && (
                 <p className="text-amber-800 font-bold text-sm bg-amber-100/50 px-2 py-1 rounded inline-block mt-1">
-                  Wait for signal, then slap!
+                  Tap when the marker hits the center!
                 </p>
+             )}
+             {phase === GamePhase.QTE && (
+                 <div className="mt-2 text-xl font-bold text-amber-700 animate-pulse">
+                    WAIT FOR IT...
+                 </div>
              )}
            </div>
         </div>
@@ -154,17 +180,17 @@ const App: React.FC = () => {
               <h2 className="text-gray-500 font-bold uppercase tracking-wider text-sm mb-1">Total Score</h2>
               <div className="text-6xl font-black text-amber-600 mb-2">{score}</div>
               
-              <div className="flex justify-center gap-4 text-sm text-gray-600 mb-6 bg-amber-50 p-3 rounded-lg">
-                <div className="flex flex-col">
-                  <span className="font-bold">{beanCount}</span>
-                  <span>Beans</span>
+                <div className="flex justify-center gap-4 text-sm text-gray-600 mb-6 bg-amber-50 p-3 rounded-lg">
+                  <div className="flex flex-col">
+                    <span className="font-bold">{beanCount}</span>
+                    <span>Beans</span>
+                  </div>
+                  <div className="w-px bg-amber-200"></div>
+                  <div className="flex flex-col">
+                    <span className="font-bold">{grade}</span>
+                    <span>Rating</span>
+                  </div>
                 </div>
-                <div className="w-px bg-amber-200"></div>
-                <div className="flex flex-col">
-                  <span className="font-bold">{grade}</span>
-                  <span>Rating</span>
-                </div>
-              </div>
 
               <button 
                 onClick={handleStart}
@@ -177,10 +203,10 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      {/* QTE Overlay - Handles its own interaction */}
+      {/* Invisible interaction layer for QTE */}
       <QTEOverlay 
         isActive={phase === GamePhase.QTE} 
-        onStop={handleSlap} 
+        onInteract={handleInteract}
       />
     </div>
   );

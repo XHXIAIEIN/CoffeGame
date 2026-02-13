@@ -1,20 +1,23 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Coffee Slap
 
-# Run and deploy your AI Studio app
+扫码即玩的 3D 小游戏：倒计时后在 QTE 时机拍桌，把咖啡豆震飞并结算分数。
 
-This contains everything you need to run your app locally.
+## 已实现
 
-View your app in AI Studio: https://ai.studio/apps/drive/1CItiKI6292wFY0Lnn93h-priXaVjAVXB
+- Three.js + React Three Fiber 场景
+- InstancedMesh 咖啡豆 + 轻量物理
+- 倒计时 -> QTE -> 拍击 -> 结算完整单局流程
+- Perfect / Good / Miss 三档冲击反馈（物理、镜头、视觉、音效、震动）
+- 命中位置分区（中心 / 边缘 / 角落）影响冲击效果
+- Perfect 二段冲击
+- 基础埋点接口（open/start/slap/result/loadTime）
+- 设备弱性能降档（减少豆子数量）
 
-## Run Locally
+## 本地运行
 
-**Prerequisites:**  Node.js
+1. `npm install`
+2. `npm run dev`
 
+## 构建
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- `npm run build`
