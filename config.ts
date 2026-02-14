@@ -26,12 +26,12 @@ export const GAME_CONFIG = {
   
   // QTE / Pendulum Config
   PENDULUM_SPEED: 3.5, // Speed of the oscillation
-  PENDULUM_RADIUS: 0.8,
+  PENDULUM_RADIUS: 1.2, // Increased radius for the new arc design
   
   // Accuracy thresholds (0.0 is center, 1.0 is edge)
   THRESHOLDS: {
-    PERFECT: 0.12, // Very center
-    GOOD: 0.45,    // Reasonable margin
+    PERFECT: 0.15, // Slightly wider for better feel
+    GOOD: 0.55,    // Reasonable margin
   },
   
   SCORE_MULTIPLIERS: {
@@ -125,8 +125,12 @@ export const GAME_CONFIG = {
     TABLE: '#8d6e63',
     TABLE_DARK: '#5d4037',
     BG: '#d7ccc8',
-    GAUGE_BG: 'rgba(255, 255, 255, 0.3)',
-    GAUGE_QK: '#fbbf24', // Perfect zone
-    GAUGE_CURSOR: '#ef4444'
+    
+    // Updated Gauge Colors
+    GAUGE_TRACK: '#1c1917', // Dark Stone
+    GAUGE_GOOD: '#f59e0b',  // Amber
+    GAUGE_PERFECT: '#10b981', // Emerald/Bright Green for contrast or '#fbbf24' for Gold
+    GAUGE_CURSOR: '#ef4444', // Red
+    GAUGE_CURSOR_GLOW: '#fea5a5'
   }
 };

@@ -1,7 +1,7 @@
 
 import React, { useRef, useImperativeHandle, forwardRef, useState, useEffect } from 'react';
 import { Canvas, useThree, useFrame } from '@react-three/fiber';
-import { Environment, PerspectiveCamera, ContactShadows, Text } from '@react-three/drei';
+import { Environment, PerspectiveCamera, ContactShadows, Text, Billboard } from '@react-three/drei';
 import { Vector3, MathUtils, Vector2, Mesh, MeshBasicMaterial, DoubleSide, Shape } from 'three';
 import CoffeeBeans, { CoffeeBeansHandle } from './CoffeeBeans';
 import Table from './Table';
@@ -20,85 +20,140 @@ export interface GameSceneHandle {
   getScore: () => number;
 }
 
-// Pendulum Gauge Component
-// An arc with a moving cursor.
-const PendulumGauge = ({ active, valueRef }: { active: boolean, valueRef: React.MutableRefObject<number> }) => {
+// --- NEW DESIGN: Linear Timing Gauge ---
+const LinearTimingGauge = ({ active, valueRef }: { active: boolean, valueRef: React.MutableRefObject<number> }) => {
+  const groupRef = useRef<any>(null);
   const cursorRef = useRef<Mesh>(null);
+  const perfectZoneRef = useRef<Mesh>(null);
   const timeRef = useRef(0);
 
+  // Configuration
+  const barWidth = 3.5;
+  const trackHeight = 0.15;
+
   useFrame((state, delta) => {
-    if (!cursorRef.current) return;
+    if (!groupRef.current) return;
     
     if (!active) {
-       cursorRef.current.visible = false;
+       groupRef.current.visible = false;
        timeRef.current = 0;
        return;
     }
-    cursorRef.current.visible = true;
+    groupRef.current.visible = true;
 
-    // Oscillate time: sin wave
+    // 1. Oscillate Logic
     timeRef.current += delta * GAME_CONFIG.PENDULUM_SPEED;
-    
-    // Value between -1 (Left) and 1 (Right). 0 is center.
     const val = Math.sin(timeRef.current);
     valueRef.current = val;
 
-    // Map value to angle
-    // Arc spans say 120 degrees (-60 to +60)
-    const angle = -val * (Math.PI / 3);
-    const radius = GAME_CONFIG.PENDULUM_RADIUS;
-    
-    cursorRef.current.position.x = Math.sin(angle) * radius;
-    cursorRef.current.position.z = Math.cos(angle) * radius;
-    cursorRef.current.rotation.y = angle;
+    // 2. Cursor Movement
+    if (cursorRef.current) {
+        // Map -1..1 to x position
+        const xPos = val * (barWidth / 2);
+        cursorRef.current.position.x = xPos;
+    }
+
+    // 3. Perfect Zone Pulse Effect
+    if (perfectZoneRef.current) {
+        const pulse = 1 + Math.sin(state.clock.elapsedTime * 15) * 0.1;
+        perfectZoneRef.current.scale.set(pulse, 1, 1);
+        (perfectZoneRef.current.material as MeshBasicMaterial).opacity = 0.8 + Math.sin(state.clock.elapsedTime * 10) * 0.2;
+    }
   });
 
+  // Calculate widths based on thresholds (0 to 1 range mapped to width)
+  // Threshold is from center (0) to edge (1). Total width represents -1 to 1.
+  const perfectWidth = (GAME_CONFIG.THRESHOLDS.PERFECT * 2) * (barWidth / 2);
+  const goodWidth = (GAME_CONFIG.THRESHOLDS.GOOD * 2) * (barWidth / 2);
+
   return (
-    <group position={[0, GAME_CONFIG.TABLE_Y + 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        {active && (
-            <>
-                {/* Background Arc */}
-                <mesh rotation={[0, 0, Math.PI / 6]}>
-                    <ringGeometry args={[GAME_CONFIG.PENDULUM_RADIUS - 0.05, GAME_CONFIG.PENDULUM_RADIUS + 0.05, 32, 1, Math.PI / 3, Math.PI * 1.33]} />
-                    <meshBasicMaterial color="white" opacity={0.3} transparent side={DoubleSide} />
-                </mesh>
-                
-                {/* Perfect Zone (Center) */}
-                <mesh position={[0, GAME_CONFIG.PENDULUM_RADIUS, 0]}>
-                    <planeGeometry args={[0.2, 0.15]} />
-                    <meshBasicMaterial color={GAME_CONFIG.COLORS.GAUGE_QK} side={DoubleSide} />
-                </mesh>
-                
-                {/* Moving Cursor */}
-                <mesh ref={cursorRef}>
-                     <boxGeometry args={[0.08, 0.2, 0.05]} />
-                     <meshBasicMaterial color={GAME_CONFIG.COLORS.GAUGE_CURSOR} />
-                </mesh>
-                
-                {/* Helper Text */}
-                <Text 
-                    position={[0, 0, 0]} 
-                    rotation={[Math.PI/2, 0, 0]} 
-                    fontSize={0.25} 
-                    color="white" 
-                    anchorX="center" 
-                    anchorY="middle"
-                    fillOpacity={0.8}
-                >
-                    TAP CENTER
-                </Text>
-            </>
-        )}
-    </group>
+    <Billboard position={[0, 2.5, 0]} follow={true} lockX={false} lockY={false} lockZ={false}>
+      <group ref={groupRef}>
+        
+        {/* Helper Label */}
+         <Text 
+            position={[0, 0.5, 0]} 
+            fontSize={0.25} 
+            color="#fff" 
+            anchorX="center" 
+            anchorY="middle"
+            outlineWidth={0.02}
+            outlineColor="#3e2723"
+        >
+            TAP CENTER
+        </Text>
+
+        {/* 1. Track Background (The Rail) */}
+        <mesh position={[0, 0, -0.02]}>
+            <planeGeometry args={[barWidth + 0.2, trackHeight + 0.1]} />
+            <meshBasicMaterial color="#000" transparent opacity={0.5} />
+        </mesh>
+        
+        {/* 2. Base Track Line */}
+        <mesh position={[0, 0, -0.01]}>
+            <planeGeometry args={[barWidth, trackHeight]} />
+            <meshBasicMaterial color={GAME_CONFIG.COLORS.GAUGE_TRACK} />
+        </mesh>
+
+        {/* 3. Good Zone (Amber) */}
+        <mesh position={[0, 0, 0.01]}>
+            <planeGeometry args={[goodWidth, trackHeight]} />
+            <meshBasicMaterial color={GAME_CONFIG.COLORS.GAUGE_GOOD} />
+        </mesh>
+
+        {/* 4. Perfect Zone (Green/Gold/Glowing) */}
+        <mesh ref={perfectZoneRef} position={[0, 0, 0.02]}>
+             <planeGeometry args={[perfectWidth, trackHeight + 0.1]} />
+             <meshBasicMaterial color={GAME_CONFIG.COLORS.GAUGE_PERFECT} transparent />
+        </mesh>
+
+        {/* 5. Center Line Marker (Static) */}
+        <mesh position={[0, 0, 0.03]}>
+            <planeGeometry args={[0.02, trackHeight + 0.3]} />
+            <meshBasicMaterial color="#fff" opacity={0.8} transparent />
+        </mesh>
+
+        {/* 6. The Cursor Indicator */}
+        <group ref={cursorRef} position={[0, 0, 0.05]}>
+             {/* The visible needle */}
+             <mesh>
+                <planeGeometry args={[0.08, trackHeight + 0.4]} />
+                <meshBasicMaterial color={GAME_CONFIG.COLORS.GAUGE_CURSOR} toneMapped={false} />
+             </mesh>
+             {/* Glow effect around cursor */}
+             <mesh position={[0, 0, -0.01]}>
+                <planeGeometry args={[0.15, trackHeight + 0.5]} />
+                <meshBasicMaterial color={GAME_CONFIG.COLORS.GAUGE_CURSOR_GLOW} transparent opacity={0.5} toneMapped={false} />
+             </mesh>
+        </group>
+
+      </group>
+    </Billboard>
   );
 };
 
 // Camera shaker component
 const CameraController = ({ shakeData }: { shakeData: { intensity: number, duration: number, active: boolean } }) => {
-  const { camera } = useThree();
+  const { camera, size } = useThree();
   const initialPos = useRef(new Vector3(0, 4, 3));
   const timeElapsed = useRef(0);
   
+  // Calculate adaptive camera position based on screen aspect ratio
+  useEffect(() => {
+     const aspect = size.width / size.height;
+     // If mobile portrait (narrow), pull camera back and up
+     if (aspect < 0.6) {
+         // ADJUSTED: Lower Y, slightly further Z for a better angle
+         initialPos.current.set(0, 5.5, 7.0); 
+     } else if (aspect < 1.0) {
+         // Tablet / Square-ish
+         initialPos.current.set(0, 6, 5);
+     } else {
+         // Desktop / Landscape
+         initialPos.current.set(0, 4, 3);
+     }
+  }, [size.width, size.height]);
+
   // Ensure we look at the table on mount and every frame
   useFrame((state, delta) => {
     if (shakeData.active && timeElapsed.current < shakeData.duration) {
@@ -303,8 +358,8 @@ const GameSceneContent = forwardRef<GameSceneHandle, GameSceneProps>(({ isSimula
 
       <Table />
       
-      {/* Pendulum Indicator */}
-      <PendulumGauge 
+      {/* Linear Timing Gauge (Replaces Arc) */}
+      <LinearTimingGauge 
         active={gamePhase === GamePhase.QTE} 
         valueRef={pendulumValueRef}
       />
